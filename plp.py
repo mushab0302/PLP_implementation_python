@@ -232,7 +232,7 @@ def save_plp_features_to_json(plp_matrix, output_json="plp_features.json"):
 
 # --- EKSEKUSI UTAMA ---
 if __name__ == "__main__":
-    mp3_file = "sampel_suara.mp3"
+    mp3_file = "input/sampel_suara.mp3"
     
     # 1. Ekstraksi Fitur PLP
     plp_features = extract_plp_features(mp3_file, p_order=4, num_cepstral=5)
@@ -241,6 +241,6 @@ if __name__ == "__main__":
     print(f"Dimensi Matriks Fitur PLP  : {len(plp_features)} x {len(plp_features[0])}")
     
     # 2. Simpan Output Fitur ke Berkas CSV dan JSON
-    save_plp_features_to_csv(plp_features, output_csv="plp_features.csv")
-    save_plp_features_to_json(plp_features, output_json="plp_features.json")
+    save_plp_features_to_csv(plp_features, output_csv="output/plp_features.csv")
+    save_plp_features_to_json(plp_features, output_json="output/plp_features.json")
 

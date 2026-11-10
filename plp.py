@@ -1,8 +1,10 @@
 import math
+import json
+import csv
 from pydub import AudioSegment
 
 # =====================================================================
-# 1. PRA-PEMROSESAN SINKRON (DEKODE MP3, TRIM, FRAMING, & HAMMING)
+# 1. PRA-PEMROSESAN (DEKODE MP3, TRIM, FRAMING, & HAMMING)
 # =====================================================================
 
 def mp3_to_signal_list(file_path, target_sr=16000, threshold=1e-4):
@@ -13,7 +15,7 @@ def mp3_to_signal_list(file_path, target_sr=16000, threshold=1e-4):
     raw_samples = audio.get_array_of_samples()
     s = [sample / 32768.0 for sample in raw_samples]
     
-    # Trim keheningan di awal audio (opsional, menjaga kepastian sampel vokal)
+    # Trim keheningan di awal audio
     start_idx = next((i for i, x in enumerate(s) if abs(x) > threshold), 0)
     s_trimmed = s[start_idx:]
     
@@ -36,10 +38,7 @@ def create_frames_as_list(s, sr, frame_length_ms=25, frame_step_ms=10):
 
 
 def apply_hamming_window(frame):
-    """
-    Mengalikan SATU FRAME sinyal audio s(n) dengan Hamming Window w(n).
-    Formula: s_windowed(n) = s(n) * (0.54 - 0.46 * cos(2 * pi * n / (N - 1)))
-    """
+    """Mengalikan SATU FRAME sinyal audio s(n) dengan Hamming Window w(n)."""
     N = len(frame)
     if N <= 1:
         return frame
@@ -180,39 +179,23 @@ def ar_to_cepstral(a_coeffs, gain, num_cepstral=5):
 
 
 # =====================================================================
-# 3. PIPELINE UTAMA
+# 3. PIPELINE UTAMA & FUNGSI PENYIMPANAN OUTPUT
 # =====================================================================
 
 def extract_plp_features(mp3_file_path, p_order=4, num_cepstral=5):
-    # 1. Dekode MP3 ke sinyal list
+    """Ekstraksi fitur PLP dari file MP3."""
     s, sr = mp3_to_signal_list(mp3_file_path, target_sr=16000)
-    
-    # 2. Framing sinyal suara (list of lists)
     frames = create_frames_as_list(s, sr, frame_length_ms=25, frame_step_ms=10)
     
     plp_matrix = []
     
-    # 3. Iterasi setiap frame audio
     for raw_frame in frames:
-        # A. Hamming Windowing diterapkan per-frame
         windowed_frame = apply_hamming_window(raw_frame)
-        
-        # B. Power Spectrum via DFT
         power_spec = compute_power_spectrum(windowed_frame)
-        
-        # C. Critical Band (Bark) Integration
         theta_bark, bark_centers = critical_band_integration(power_spec, sample_rate=sr, num_bark_bands=18)
-        
-        # D. Equal-Loudness & Intensity Compression
         phi_spec = equal_loudness_and_intensity_compression(theta_bark, bark_centers)
-        
-        # E. IDFT (Autokorelasi Perseptual R_k)
         R = compute_perceptual_autocorrelation(phi_spec, p_order)
-        
-        # F. Levinson-Durbin Recursion
         a_coeffs, gain = levinson_durbin(R, p_order)
-        
-        # G. Konversi ke PLP Cepstral Coefficients
         cepstral_coeffs = ar_to_cepstral(a_coeffs, gain, num_cepstral=num_cepstral)
         
         plp_matrix.append(cepstral_coeffs)
@@ -220,14 +203,44 @@ def extract_plp_features(mp3_file_path, p_order=4, num_cepstral=5):
     return plp_matrix
 
 
-# --- EKSEKUSI ---
+def save_plp_features_to_csv(plp_matrix, output_csv="plp_features.csv"):
+    """Menyimpan matriks fitur PLP ke file CSV."""
+    num_cepstral = len(plp_matrix[0]) if plp_matrix else 0
+    headers = ["frame_index"] + [f"c_{i}" for i in range(num_cepstral)]
+    
+    with open(output_csv, mode="w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(headers)
+        for idx, row in enumerate(plp_matrix):
+            writer.writerow([idx] + [round(val, 6) for val in row])
+            
+    print(f"[OK] Fitur PLP berhasil disimpan ke CSV : {output_csv}")
+
+
+def save_plp_features_to_json(plp_matrix, output_json="plp_features.json"):
+    """Menyimpan matriks fitur PLP ke file JSON."""
+    data = {
+        "num_frames": len(plp_matrix),
+        "num_cepstral": len(plp_matrix[0]) if plp_matrix else 0,
+        "features": plp_matrix
+    }
+    with open(output_json, mode="w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4)
+        
+    print(f"[OK] Fitur PLP berhasil disimpan ke JSON: {output_json}")
+
+
+# --- EKSEKUSI UTAMA ---
 if __name__ == "__main__":
     mp3_file = "sampel_suara.mp3"
     
-    # Jalankan ekstraksi fitur PLP langsung dari MP3
+    # 1. Ekstraksi Fitur PLP
     plp_features = extract_plp_features(mp3_file, p_order=4, num_cepstral=5)
     
     print(f"Total Frame yang Diproses  : {len(plp_features)}")
     print(f"Dimensi Matriks Fitur PLP  : {len(plp_features)} x {len(plp_features[0])}")
-    print("\nKoefisien PLP Cepstral Frame Pertama (c_0 s.d c_4):")
-    print([round(x, 6) for x in plp_features[0]])
+    
+    # 2. Simpan Output Fitur ke Berkas CSV dan JSON
+    save_plp_features_to_csv(plp_features, output_csv="plp_features.csv")
+    save_plp_features_to_json(plp_features, output_json="plp_features.json")
+
